@@ -173,6 +173,3 @@ To regenerate samples:
 PYTHONPATH=. python scripts/generate_samples.py
 ```
 
-## License
-
-MIT
