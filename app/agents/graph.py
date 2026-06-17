@@ -5,6 +5,9 @@ from app.agents.report import report_node
 from app.agents.research import research_node
 from app.agents.state import ResearchState
 from app.agents.summarization import summarization_node
+from app.config import configure_langsmith
+
+configure_langsmith()
 
 
 def build_research_graph():

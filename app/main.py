@@ -4,9 +4,12 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app.api.routes import router
+from app.config import configure_langsmith
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+configure_langsmith()
 
 app = FastAPI(
     title="Multi-Agent Research Assistant",
