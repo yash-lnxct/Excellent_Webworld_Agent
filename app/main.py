@@ -1,13 +1,11 @@
 import logging
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI
 
 from app.api.routes import router
 from app.config import configure_langsmith
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 configure_langsmith()
 
@@ -18,9 +16,3 @@ app = FastAPI(
 )
 
 app.include_router(router)
-
-
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    logger.exception("Unhandled error on %s", request.url.path)
-    return JSONResponse(status_code=500, content={"detail": str(exc)})

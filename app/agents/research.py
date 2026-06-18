@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field
 
+from app.agents.llm import invoke_structured
 from app.agents.state import ResearchState
-from app.config import get_llm
 from app.tools.search import format_search_results, search
 
 
@@ -19,11 +19,10 @@ class ResearchOutput(BaseModel):
 
 def research_node(state: ResearchState) -> dict:
     topic = state["topic"]
-    llm = get_llm()
 
-    sub_query_llm = llm.with_structured_output(SubQueries)
-    sub_queries = sub_query_llm.invoke(
-        f"Generate 1-2 focused web search queries to research this topic: {topic}"
+    sub_queries = invoke_structured(
+        f"Generate 1-2 focused web search queries to research this topic: {topic}",
+        SubQueries,
     )
 
     all_queries = [topic, *sub_queries.queries[:2]]
@@ -41,8 +40,7 @@ def research_node(state: ResearchState) -> dict:
 
     search_context = format_search_results(all_results)
 
-    research_llm = llm.with_structured_output(ResearchOutput)
-    output = research_llm.invoke(
+    output = invoke_structured(
         f"""You are a Research Agent. Analyze the following web search results for the topic: "{topic}"
 
 Search Results:
@@ -51,7 +49,8 @@ Search Results:
 Instructions:
 - Extract relevant content and identify key insights and trends.
 - Only include URLs that appear in the search results above.
-- Provide detailed raw research notes, a deduplicated URL list, and important findings."""
+- Provide detailed raw research notes, a deduplicated URL list, and important findings.""",
+        ResearchOutput,
     )
 
     return {

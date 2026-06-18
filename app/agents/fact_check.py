@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field
 
+from app.agents.llm import invoke_structured
 from app.agents.state import FactCheckResult, ResearchState
-from app.config import get_llm
 from app.tools.search import format_search_results, search
 
 
@@ -24,16 +24,15 @@ class FactCheckOutput(BaseModel):
 
 def fact_check_node(state: ResearchState) -> dict:
     topic = state["topic"]
-    llm = get_llm()
 
-    claims_llm = llm.with_structured_output(ClaimsOutput)
-    claims_output = claims_llm.invoke(
+    claims_output = invoke_structured(
         f"""Extract 5-8 verifiable factual claims from this research on "{topic}":
 
 Findings: {state.get("important_findings", [])}
 Summary: {state.get("structured_summary", "")}
 
-Return specific, checkable claims only."""
+Return specific, checkable claims only.""",
+        ClaimsOutput,
     )
 
     cross_ref_blocks: list[str] = []
@@ -46,8 +45,7 @@ Return specific, checkable claims only."""
             f"Claim: {claim}\nCross-reference results:\n{format_search_results(results)}"
         )
 
-    fact_check_llm = llm.with_structured_output(FactCheckOutput)
-    output = fact_check_llm.invoke(
+    output = invoke_structured(
         f"""You are a Fact-Checking Agent for research on: "{topic}"
 
 Original Findings:
@@ -63,7 +61,8 @@ Instructions:
 - Validate each claim against cross-reference sources.
 - Assign status: verified, disputed, or unsupported.
 - Provide a confidence score (0-1) per claim and an overall confidence_score.
-- Flag unsupported statements in fact_check_notes."""
+- Flag unsupported statements in fact_check_notes.""",
+        FactCheckOutput,
     )
 
     verified_facts: list[FactCheckResult] = [

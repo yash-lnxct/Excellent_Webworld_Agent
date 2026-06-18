@@ -9,6 +9,8 @@ A FastAPI + LangGraph system that generates comprehensive research reports on an
 - **Fact-Checking Agent** — cross-references claims against multiple sources
 - **Report Generation Agent** — produces a structured final report
 - **Tavily-first search** with **DuckDuckGo fallback** when Tavily fails
+- **Primary OpenAI model** with **automatic fallback model** on transient API failures
+- **LangSmith tracing** (optional) for observability
 
 ## Architecture
 
@@ -24,10 +26,12 @@ flowchart LR
     FactCheckAgent --> SearchTool
     SearchTool --> Tavily
     SearchTool -->|"on failure"| DuckDuckGo
-    ResearchAgent --> ChatOpenAI
-    SummarizationAgent --> ChatOpenAI
-    FactCheckAgent --> ChatOpenAI
-    ReportAgent --> ChatOpenAI
+    ResearchAgent --> LLMInvoker
+    SummarizationAgent --> LLMInvoker
+    FactCheckAgent --> LLMInvoker
+    ReportAgent --> LLMInvoker
+    LLMInvoker --> PrimaryModel
+    LLMInvoker -->|"on failure"| FallbackModel
     ReportAgent --> FastAPI
 ```
 
@@ -37,6 +41,45 @@ flowchart LR
 2. **Summarization** — processes research output into a structured summary with main points and observations.
 3. **Fact-Check** — extracts verifiable claims, cross-searches each claim, assigns confidence scores and verification status.
 4. **Report** — synthesizes all prior outputs into the final structured report.
+
+## Fallback Systems
+
+The project uses two independent fallback layers so agents stay resilient without local error handling.
+
+### 1. Search fallback (`app/tools/search.py`)
+
+All web searches go through a single `search()` function used by the Research and Fact-Check agents.
+
+| Step | Provider | When |
+|------|----------|------|
+| Primary | **Tavily** | Default for every query |
+| Fallback | **DuckDuckGo** | Tavily fails (missing key, API error, timeout, empty results) |
+| Failure | `SearchError` → HTTP **502** | Both providers fail for the same query |
+
+Deduplicated results are normalized to the same shape (`title`, `url`, `content`) regardless of provider. The response field `search_providers_used` shows which providers served results (e.g. `["tavily"]` or `["duckduckgo"]`).
+
+### 2. LLM fallback (`app/agents/llm.py`)
+
+All agent LLM calls go through a single `invoke_structured()` helper.
+
+| Step | Model | When |
+|------|-------|------|
+| Primary | `OPENAI_MODEL` (default `gpt-4o-mini`) | Default for every structured LLM call |
+| Fallback | `OPENAI_FALLBACK_MODEL` (default `gpt-4o`) | Primary model hits a transient API error |
+| Failure | `LLMError` → HTTP **503** | Both models fail for the same call |
+
+Fallback is triggered only for **main transient errors**: connection failures, timeouts, rate limits (429), server errors (5xx), and model-not-found (404). Auth errors (401/403) fail immediately without retrying.
+
+Agents do not contain their own `try/except` blocks — fallback logic is centralized here.
+
+### Error handling summary
+
+| Status | Error | Meaning |
+|--------|-------|---------|
+| 422 | Validation | Invalid request (e.g. topic too short) |
+| 500 | `ValueError` | Configuration error (e.g. missing `OPENAI_API_KEY`) |
+| 502 | `SearchError` | Both Tavily and DuckDuckGo failed |
+| 503 | `LLMError` | Both primary and fallback OpenAI models failed |
 
 ## Setup
 
@@ -62,6 +105,12 @@ Edit `.env` and set your keys:
 OPENAI_API_KEY=sk-...
 TAVILY_API_KEY=tvly-...
 OPENAI_MODEL=gpt-4o-mini
+OPENAI_FALLBACK_MODEL=gpt-4o
+
+# Optional: LangSmith tracing
+LANGSMITH_TRACING=true
+LANGSMITH_API_KEY=lsv2_...
+LANGSMITH_PROJECT=ai-research-agent
 ```
 
 ### Run the Server
@@ -127,36 +176,41 @@ curl -X POST http://127.0.0.1:8000/api/v1/research \
 | Status | Cause |
 |--------|-------|
 | 422 | Invalid request (e.g. topic too short) |
+| 500 | Missing or invalid configuration (e.g. `OPENAI_API_KEY`) |
 | 502 | Both Tavily and DuckDuckGo search failed |
-| 500 | OpenAI or internal error |
+| 503 | Both primary and fallback OpenAI models failed |
 
 ## Project Structure
 
 ```
 app/
 ├── main.py              # FastAPI application
-├── config.py            # Settings and LLM factory
+├── config.py            # Settings, LLM factories, LangSmith setup
+├── exceptions.py        # AgentError, LLMError
 ├── api/
 │   ├── routes.py        # API endpoints
 │   └── schemas.py       # Request/response models
 ├── agents/
 │   ├── state.py         # LangGraph state definition
 │   ├── graph.py         # Workflow graph
+│   ├── llm.py           # invoke_structured() with OpenAI fallback
 │   ├── research.py      # Research agent node
 │   ├── summarization.py # Summarization agent node
 │   ├── fact_check.py    # Fact-checking agent node
 │   └── report.py        # Report generation agent node
 └── tools/
-    └── search.py        # Tavily + DuckDuckGo search
+    └── search.py        # Tavily + DuckDuckGo search fallback
 samples/                 # Example generated reports
 ```
 
 ## Assumptions
 
-- **Search**: Tavily is the primary search provider; DuckDuckGo is used automatically when Tavily fails (missing key, API error, timeout).
+- **Search fallback**: Tavily is primary; DuckDuckGo is used automatically per-query when Tavily fails.
+- **LLM fallback**: Primary model is tried first; fallback model handles transient OpenAI API failures only.
+- **Centralized errors**: Agents delegate to `search()` and `invoke_structured()`; routes map main errors to HTTP status codes.
 - **No vector DB**: All context is passed through LangGraph state between agents.
 - **Sync API**: Research runs synchronously in the request handler (typical run: 1–3 minutes).
-- **Model**: Defaults to `gpt-4o-mini` for cost efficiency; configurable via `OPENAI_MODEL`.
+- **Models**: Defaults to `gpt-4o-mini` (primary) and `gpt-4o` (fallback); both configurable via `.env`.
 - **Citations**: Agents are instructed to cite only URLs returned by search results.
 - **No auth**: API is open; add authentication for production use.
 

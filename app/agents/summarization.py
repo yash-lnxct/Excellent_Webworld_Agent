@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field
 
+from app.agents.llm import invoke_structured
 from app.agents.state import ResearchState
-from app.config import get_llm
 
 
 class SummarizationOutput(BaseModel):
@@ -12,9 +12,8 @@ class SummarizationOutput(BaseModel):
 
 def summarization_node(state: ResearchState) -> dict:
     topic = state["topic"]
-    llm = get_llm().with_structured_output(SummarizationOutput)
 
-    output = llm.invoke(
+    output = invoke_structured(
         f"""You are a Summarization Agent. Process the research gathered on: "{topic}"
 
 Raw Research Notes:
@@ -29,7 +28,8 @@ Source URLs:
 Instructions:
 - Remove duplicate information.
 - Generate concise summaries organized into logical sections.
-- Extract main points and important observations."""
+- Extract main points and important observations.""",
+        SummarizationOutput,
     )
 
     return {

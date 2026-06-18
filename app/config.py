@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     tavily_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
+    openai_fallback_model: str = "gpt-4o"
 
     langsmith_tracing: bool = False
     langsmith_endpoint: str = "https://api.smith.langchain.com"
@@ -56,6 +57,17 @@ def get_llm() -> ChatOpenAI:
         raise ValueError("OPENAI_API_KEY is not configured")
     return ChatOpenAI(
         model=settings.openai_model,
+        temperature=0.2,
+        api_key=settings.openai_api_key,
+    )
+
+
+def get_fallback_llm() -> ChatOpenAI:
+    settings = get_settings()
+    if not settings.openai_api_key:
+        raise ValueError("OPENAI_API_KEY is not configured")
+    return ChatOpenAI(
+        model=settings.openai_fallback_model,
         temperature=0.2,
         api_key=settings.openai_api_key,
     )

@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.agents.graph import research_graph
 from app.api.schemas import FactCheckResultSchema, ResearchRequest, ResearchResponse
+from app.exceptions import LLMError
 from app.tools.search import SearchError
 
 router = APIRouter(prefix="/api/v1")
@@ -18,7 +19,9 @@ def create_research_report(request: ResearchRequest) -> ResearchResponse:
         result = research_graph.invoke({"topic": request.topic})
     except SearchError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    except Exception as exc:
+    except LLMError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     fact_check_results = [

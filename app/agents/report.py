@@ -1,8 +1,8 @@
 from pydantic import BaseModel, Field
 
 from app.agents.fact_check import VerifiedClaim
+from app.agents.llm import invoke_structured
 from app.agents.state import ResearchState
-from app.config import get_llm
 
 
 class ReportOutput(BaseModel):
@@ -16,9 +16,8 @@ class ReportOutput(BaseModel):
 
 def report_node(state: ResearchState) -> dict:
     topic = state["topic"]
-    llm = get_llm().with_structured_output(ReportOutput)
 
-    output = llm.invoke(
+    output = invoke_structured(
         f"""You are a Report Generation Agent. Create a professional research report on: "{topic}"
 
 Structured Summary:
@@ -45,7 +44,8 @@ Instructions:
 - Generate executive summary, key findings, supporting evidence, fact-check results, references, and conclusion.
 - Include only URLs from the source list above in references.
 - fact_check_results must reflect the verified facts with claim, status, confidence, and notes.
-- Write in a clear, professional tone."""
+- Write in a clear, professional tone.""",
+        ReportOutput,
     )
 
     return {
